@@ -1,0 +1,25 @@
+{
+  "name": "ai-daily-news",
+  "version": "0.1.0",
+  "description": "Daily AI news aggregator (OpenAI / Anthropic / Google) with Claude summary, Email + LINE push.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "daily": "node src/index.js --mode=daily",
+    "weekly": "node src/index.js --mode=weekly",
+    "daemon": "node src/daemon.js",
+    "test:sources": "node src/index.js --dry-run"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.1",
+    "cheerio": "^1.0.0",
+    "dotenv": "^16.4.5",
+    "node-cron": "^3.0.3",
+    "nodemailer": "^6.9.16",
+    "rss-parser": "^3.13.0"
+  }
+}

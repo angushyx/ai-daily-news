@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.user.ai-daily-news</string>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/angushyx/Desktop/ai-daily-news</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/angushyx/.nvm/versions/node/v18.18.2/bin/node</string>
+    <string>/Users/angushyx/Desktop/ai-daily-news/src/index.js</string>
+    <string>--mode=daily</string>
+  </array>
+
+  <!-- 每天 09:00 (本機時區) -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>9</integer>
+    <key>Minute</key><integer>0</integer>
+  </dict>
+
+  <!-- 開機/喚醒後若錯過排程，立刻補跑一次 -->
+  <key>RunAtLoad</key>
+  <false/>
+
+  <!-- claude -p 需要 PATH 找到 claude 與 node -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/angushyx/.local/bin:/Users/angushyx/.nvm/versions/node/v18.18.2/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/ai-daily-news.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/ai-daily-news.err</string>
+</dict>
+</plist>
