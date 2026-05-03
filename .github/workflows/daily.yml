@@ -1,9 +1,9 @@
 name: AI Daily News
 
 on:
-  schedule:
-    # 每天 01:00 UTC = 台北 09:00
-    - cron: '0 1 * * *'
+  # 主要靠本機 launchd 跑；這裡只留手動觸發備援
+  # schedule:
+  #   - cron: '0 1 * * *'  # 01:00 UTC = 台北 09:00
   workflow_dispatch:
 
 permissions:
