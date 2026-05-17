@@ -7,10 +7,12 @@ export const FEEDS = [
   // ---- Tier 1：模型廠（自家研究 / 公告） ----
   { name: 'Google AI (The Keyword)', url: 'https://blog.google/technology/ai/rss/', tier: 1 },
   { name: 'Google DeepMind', url: 'https://deepmind.google/blog/rss.xml', tier: 1 },
+  { name: 'Google Research', url: 'https://research.google/blog/rss/', tier: 1 },
   { name: 'Microsoft Research', url: 'https://www.microsoft.com/en-us/research/feed/', tier: 1 },
   // Qwen blog 改名/搬家頻繁，找到穩定 RSS 再加
 
   // ---- Tier 2：AI infra / dev tools (對全端工程師最直接) ----
+  { name: 'Google for Developers', url: 'https://developers.googleblog.com/feeds/posts/default?alt=rss', tier: 2 },
   { name: 'Hugging Face Blog', url: 'https://huggingface.co/blog/feed.xml', tier: 2 },
   // LangChain 自家 RSS 結構不合規 (rss-parser 解析失敗)；他們重要訊息會出現在 Latent Space / GitHub releases
   // { name: 'LangChain Blog', url: 'https://blog.langchain.dev/rss/', tier: 2 },
@@ -22,7 +24,7 @@ export const FEEDS = [
 
   // ---- Tier 4：三大雲 AI 部落格 (DevOps 必看) ----
   { name: 'AWS Machine Learning', url: 'https://aws.amazon.com/blogs/machine-learning/feed/', tier: 4 },
-  // GCP RSS 含未跳脫 < 字元，rss-parser 處理不了；Google AI Keyword feed 已覆蓋 GCP AI 公告
+  { name: 'Google Cloud AI/ML', url: 'https://cloudblog.withgoogle.com/products/ai-machine-learning/rss/', tier: 4 },
 
   // ---- Tier 5：高訊噪比 newsletter / 工程師博客 ----
   { name: 'Simon Willison', url: 'https://simonwillison.net/atom/everything/', tier: 5 },

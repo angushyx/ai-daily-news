@@ -11,6 +11,7 @@
     "start": "node src/index.js",
     "daily": "node src/index.js --mode=daily",
     "weekly": "node src/index.js --mode=weekly",
+    "research-weekly": "node src/index.js --mode=research-weekly",
     "daemon": "node src/daemon.js",
     "test:sources": "node src/index.js --dry-run"
   },

@@ -1,5 +1,7 @@
 import './bootstrap.js'; // 必須最先 import：給 Node 18 polyfill global File
 import 'dotenv/config';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { fetchOpenAI } from './sources/openai.js';
 import { fetchAnthropic } from './sources/anthropic.js';
 import { fetchMeta } from './sources/meta.js';
@@ -8,6 +10,8 @@ import { fetchRssFeeds } from './sources/rss-feeds.js';
 import { fetchGithubReleases } from './sources/github-releases.js';
 import { loadSeen, saveSeen } from './store.js';
 import { summarize } from './summarize.js';
+import { loadProjectContext, formatProjectContext } from './project-context.js';
+import { runResearchWeekly } from './research-weekly.js';
 import { saveMarkdown, todayStr, weekLabel } from './render.js';
 import { sendEmail } from './notify/email.js';
 import { sendLine } from './notify/line.js';
@@ -40,15 +44,18 @@ async function run() {
   const env = process.env;
   const tz = env.TZ || 'Asia/Taipei';
   const isWeekly = MODE === 'weekly';
-  // weekly 預設抓 7 天 (168h)；daily 預設 26h
-  const defaultLookback = isWeekly ? 168 : 26;
+  const isResearch = MODE === 'research-weekly';
+  const isLongForm = isWeekly || isResearch;
+  // weekly / research-weekly 預設抓 7 天 (168h)；daily 預設 26h
+  const defaultLookback = isLongForm ? 168 : 26;
   const lookbackHours = Number(
-    env[isWeekly ? 'LOOKBACK_HOURS_WEEKLY' : 'LOOKBACK_HOURS'] || defaultLookback
+    env[isLongForm ? 'LOOKBACK_HOURS_WEEKLY' : 'LOOKBACK_HOURS'] || defaultLookback
   );
 
+  const modeLabel = isResearch ? 'Research Weekly' : isWeekly ? 'Weekly' : 'Daily';
   console.log(
-    `== AI ${isWeekly ? 'Weekly' : 'Daily'} News ${
-      isWeekly ? weekLabel(tz) : todayStr(tz)
+    `== AI ${modeLabel} News ${
+      isLongForm ? weekLabel(tz) : todayStr(tz)
     } (lookback ${lookbackHours}h) ==`
   );
 
@@ -63,12 +70,12 @@ async function run() {
 
   let items = [...openai, ...anthropic, ...meta, ...mistral, ...rss, ...gh];
 
-  // weekly 模式不過濾 seen（週報是回顧，重出沒關係）；daily 才過濾
-  const seen = isWeekly ? new Set() : await loadSeen();
-  const fresh = isWeekly
+  // long-form (weekly / research-weekly) 不過濾 seen；daily 才過濾
+  const seen = isLongForm ? new Set() : await loadSeen();
+  const fresh = isLongForm
     ? items.filter((it) => it.url)
     : items.filter((it) => it.url && !seen.has(it.url));
-  console.log(`Total: ${items.length}, ${isWeekly ? 'this-week' : 'fresh'}: ${fresh.length}`);
+  console.log(`Total: ${items.length}, ${isLongForm ? 'this-week' : 'fresh'}: ${fresh.length}`);
 
   if (DRY_RUN) {
     console.log('--- DRY RUN: items ---');
@@ -76,15 +83,34 @@ async function run() {
     return;
   }
 
-  // 摘要 (預設用 claude -p 走訂閱，免 API 費)
+  // 摘要：daily/weekly 用 summarize，research-weekly 跑兩段式 harness
   const wkLabel = weekLabel(tz);
-  const summary = await summarize(fresh, env, {
-    mode: isWeekly ? 'weekly' : 'daily',
-    weekLabel: wkLabel,
-  });
 
-  const label = isWeekly ? `Weekly ${wkLabel}` : `Daily ${todayStr(tz)}`;
-  const subject = `🤖 AI ${label} — ${fresh.length} 則`;
+  // 載入使用者專案脈絡，讓 summary 能做「文章 ↔ 我的專案」關聯分析
+  // 可用 env.PROJECT_PATH 覆寫；找不到就 silent skip（不影響原流程）
+  const projectCtx = !isResearch ? await loadProjectContext({ days: isWeekly ? 14 : 7 }) : null;
+  const projectContext = formatProjectContext(projectCtx);
+  if (projectCtx) {
+    console.log(
+      `[project-context] ${projectCtx.name} (${projectCtx.recentCommits?.length || 0} commits, ${projectCtx.docTitles?.length || 0} docs)`
+    );
+  }
+
+  const summary = isResearch
+    ? await runResearchWeekly(fresh, env, { weekLabel: wkLabel })
+    : await summarize(fresh, env, {
+        mode: isWeekly ? 'weekly' : 'daily',
+        weekLabel: wkLabel,
+        projectContext,
+      });
+
+  const label = isResearch
+    ? `Research Weekly ${wkLabel}`
+    : isWeekly
+    ? `Weekly ${wkLabel}`
+    : `Daily ${todayStr(tz)}`;
+  const subjectIcon = isResearch ? '🧠' : '🤖';
+  const subject = `${subjectIcon} AI ${label} — ${fresh.length} 則`;
   const localTime = new Intl.DateTimeFormat('zh-TW', {
     timeZone: tz,
     year: 'numeric',
@@ -95,20 +121,29 @@ async function run() {
     hour12: false,
   }).format(new Date());
   const SEP = '━━━━━━━━━━━━━━━━━━━━━';
-  const linksSection = fresh.length
+  // research-weekly 不附「全部原始連結」清單（主題內已有引用）
+  // weekly 也不附（新版 weekly prompt 已要求摘要本身就完整分類收錄全部文章）
+  // 只有 daily 留 footer，作為快速參考清單
+  const linksSection = !isResearch && !isWeekly && fresh.length
     ? `\n${SEP}\n\n## 📎 原始連結\n${fresh
         .map((it) => `- [${it.source}] [${it.title}](${it.url})`)
         .join('\n')}\n`
     : '';
-  const footer = `\n${SEP}\n🤖 ${
-    isWeekly ? 'weekly' : 'daily'
-  } · 回溯 ${lookbackHours}h · 抓取 ${items.length} 篇 · ${
-    isWeekly ? '本週' : '新增'
-  } ${fresh.length} 篇\n🕒 ${localTime} (${tz})\n`;
+  const modeTag = isResearch ? 'research-weekly' : isWeekly ? 'weekly' : 'daily';
+  const countWord = isLongForm ? '本週' : '新增';
+  const footer = `\n${SEP}\n${subjectIcon} ${modeTag} · 回溯 ${lookbackHours}h · 抓取 ${items.length} 篇 · ${countWord} ${fresh.length} 篇\n🕒 ${localTime} (${tz})\n`;
   const markdown = `${summary}\n${linksSection}${footer}`;
 
-  // 存檔
-  const file = await saveMarkdown(markdown, tz, { mode: isWeekly ? 'weekly' : 'daily' });
+  // 存檔：research-weekly 用獨立檔名 reports/research-weekly-YYYY-Www.md
+  let file;
+  if (isResearch) {
+    const dir = path.resolve('reports');
+    await fs.mkdir(dir, { recursive: true });
+    file = path.join(dir, `research-weekly-${wkLabel}.md`);
+    await fs.writeFile(file, markdown, 'utf8');
+  } else {
+    file = await saveMarkdown(markdown, tz, { mode: isWeekly ? 'weekly' : 'daily' });
+  }
   console.log(`Saved report -> ${file}`);
 
   // 通知（即使沒有 fresh 文章也送一封，方便確認 cron 真的有跑；要省可改成 if (fresh.length)）
@@ -129,8 +164,8 @@ async function run() {
   }
   await Promise.all(tasks);
 
-  // 標記已讀（只在 daily 模式做；週報不應影響 daily 的去重狀態）
-  if (!isWeekly) {
+  // 標記已讀（只在 daily 模式做；weekly / research-weekly 不影響 daily 去重）
+  if (!isLongForm) {
     for (const it of fresh) seen.add(it.url);
     await saveSeen(seen);
   }
