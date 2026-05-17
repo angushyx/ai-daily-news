@@ -55,26 +55,116 @@ npm run daily       # 日報
 npm run weekly      # 週報
 ```
 
-## 在另一台 Mac 上跑（手動模式，跨機共用 seen.json）
+---
+
+# 🔁 Handover SOP（給未來的我 / Claude Code）
+
+> **使用方式**：在新機器上 `git clone` 後，把這整節貼給 Claude Code，它會照流程把環境帶起來。
+> 設計目標：**人類只做兩件事，其他全自動**。
+
+## 人類只要做兩件事
+
+1. **把舊機器的 `.env` 搬過來**（AirDrop / 1Password / 加密 USB 三選一）
+   - 放到 repo 根目錄，檔名就叫 `.env`
+   - 必要欄位：`SMTP_USER`/`SMTP_PASS`/`EMAIL_FROM`/`EMAIL_TO`/`LINE_CHANNEL_ACCESS_TOKEN`/`LINE_TO_USER_ID`
+2. **完成 claude CLI OAuth**（一次性，瀏覽器登入）
+   - 跑 `claude` 走完登入流程；之後 `claude -p` 就能 headless 跑
+
+## Claude Code 自動 checklist（照順序執行，每步驗證）
 
 ```bash
-# 1. clone
+# === Step 1. 環境檢查 ===
+node -v          # 需要 >= 18.17，沒裝就 brew install node
+git -v
+claude --version || echo "需手動裝 claude CLI: curl -fsSL https://claude.ai/install.sh | bash"
+
+# === Step 2. clone + 安裝依賴 ===
+cd ~/Desktop     # 或任何想放的位置
 git clone git@github.com:angushyx/ai-daily-news.git
 cd ai-daily-news
 npm ci
 
-# 2. 把 .env 從原本那台 Mac 帶過來（AirDrop 最快），或 cp .env.example .env 重填
-#    記得在 .env 設 PROJECT_PATH 指向這台機器的 gcms-ai-forge 路徑
+# === Step 3. 驗證 .env（人類已 AirDrop 進來）===
+test -f .env || { echo "❌ 缺 .env，請人類處理"; exit 1; }
+set -a; source .env; set +a
+echo "LINE token 長度: ${#LINE_CHANNEL_ACCESS_TOKEN}  (期望 100+)"
+echo "LINE userId 長度: ${#LINE_TO_USER_ID}           (期望 33)"
+echo "SMTP user: $SMTP_USER"
+echo "Model: $CLAUDE_CLI_MODEL"
 
-# 3. 確認 claude-cli 能跑（subscription 共用同帳號）
-echo "say hi" | claude -p --model sonnet
+# === Step 4. PROJECT_PATH 偵測（讓 summary 帶上專案脈絡）===
+# 找這台機器上的 gcms-ai-forge 位置，自動寫進 .env
+if [ -d "$HOME/Desktop/gcms-ai-forge" ]; then
+  CANDIDATE="$HOME/Desktop/gcms-ai-forge"
+elif [ -d "$HOME/repos/gcms-ai-forge" ]; then
+  CANDIDATE="$HOME/repos/gcms-ai-forge"
+elif [ -d "$HOME/Code/gcms-ai-forge" ]; then
+  CANDIDATE="$HOME/Code/gcms-ai-forge"
+else
+  CANDIDATE=""
+fi
+if [ -n "$CANDIDATE" ] && ! grep -q "^PROJECT_PATH=" .env; then
+  echo "PROJECT_PATH=$CANDIDATE" >> .env
+  echo "✓ 已設 PROJECT_PATH=$CANDIDATE"
+fi
+# 找不到也沒關係 → summary 會跳過「對 gcms-ai-forge 的迭代啟發」這節，不會壞
 
-# 4. 用 wrapper 跑（自動 git pull + 跑完 push 更新後的 seen.json）
-bash scripts/run.sh daily      # 或 weekly
+# === Step 5. claude CLI smoke test ===
+echo "say hi in 5 words" | claude -p --model sonnet
+# 若卡住要登入 → 通知人類執行 `claude` 完成 OAuth
+
+# === Step 6. dry-run 確認來源能抓到（不發信、不打模型）===
+npm run test:sources 2>&1 | tail -20
+# 期望看到 OpenAI/Anthropic/RSS/GitHub Releases 各自 got N item(s)
+# Meta FAILED 是正常（持續被 CDN 擋）
+
+# === Step 7. 正式跑一次 daily（會發 LINE + Email）===
+bash scripts/run.sh daily
+# 期望看到最後幾行：
+#   [project-context] gcms-ai-forge (XX commits, XX docs)   ← 若有設 PROJECT_PATH
+#   Saved report -> reports/YYYY-MM-DD.md
+#   LINE sent: N chunk(s)
+#   Email sent: <message-id>
+#   ✓ done
+
+# === Step 8. 人類驗收 ===
+# - LINE 收到 ≥ 1 chunk
+# - Gmail inbox 有 "🤖 AI Daily ..." subject
+# - 若有 project context → summary 裡看得到「對 gcms-ai-forge 的迭代啟發」這節
 ```
 
-> wrapper 會在跑之前 `git pull --rebase`，跑完把新的 `data/seen.json` commit + push。
-> 兩台 Mac 輪流跑都 OK，不會重複推同一篇文章。
+## 跨機共用設計（為什麼用 `scripts/run.sh`）
+
+兩台 Mac 都會跑時，wrapper 處理 dedup state：
+
+1. 跑之前 `git pull --rebase --autostash` — 拉另一台機器更新過的 `data/seen.json`
+2. `npm run daily`
+3. 跑完 `commit + push` 更新後的 `seen.json`，commit message 帶 hostname 看得出來源
+
+→ **兩台 Mac 輪流跑都不會推到同一篇文章**。
+直接 `npm run daily` 也能跑，只是少了跨機同步。
+
+## 常見問題（Claude Code 看到這些 error 怎麼修）
+
+| 錯誤訊息 | 原因 | 修法 |
+|---|---|---|
+| `claude: command not found` | CLI 沒裝 | `curl -fsSL https://claude.ai/install.sh \| bash` |
+| `claude -p` 卡住要登入 | 沒走過 OAuth | 通知人類執行 `claude` 走瀏覽器登入 |
+| `LINE FAILED: 400 invalid 'to'` | `LINE_TO_USER_ID` 不對 | 必須 `U` 開頭 33 字元 |
+| `Email FAILED: 535` | Gmail app password 錯 | 重新到 myaccount.google.com/apppasswords 產生 16 碼 |
+| `Total: 0` | lookback 太短或大廠當日沒發 | 試 `LOOKBACK_HOURS=72 npm run daily` |
+| `Total > 0 但 fresh: 0` | seen.json 已涵蓋所有 URL | 正常，今天剛好沒新文章 |
+| `[project-context] path 不存在` | PROJECT_PATH 沒設或路徑錯 | `find ~ -maxdepth 4 -type d -name gcms-ai-forge` 找實際位置寫進 .env |
+
+## 想自動排程（可選，不是必須）
+
+兩個方案：
+- **launchd**（本機）：`bash scripts/launchd/install.sh` — Mac 要 24h 開機 + 有網路才會跑
+- **GitHub Actions**（雲端）：`.github/workflows/*.yml` 已寫好，需在 repo Settings → Secrets 加 7 個 secret 並打開 yml 裡的 `schedule:`；要切 `SUMMARIZER=anthropic-api` 因為 GH runner 沒 claude-cli 訂閱
+
+如果只是手動跑（推薦），這節跳過。
+
+---
 
 ## 必填 .env
 
