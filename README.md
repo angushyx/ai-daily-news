@@ -55,6 +55,27 @@ npm run daily       # 日報
 npm run weekly      # 週報
 ```
 
+## 在另一台 Mac 上跑（手動模式，跨機共用 seen.json）
+
+```bash
+# 1. clone
+git clone git@github.com:angushyx/ai-daily-news.git
+cd ai-daily-news
+npm ci
+
+# 2. 把 .env 從原本那台 Mac 帶過來（AirDrop 最快），或 cp .env.example .env 重填
+#    記得在 .env 設 PROJECT_PATH 指向這台機器的 gcms-ai-forge 路徑
+
+# 3. 確認 claude-cli 能跑（subscription 共用同帳號）
+echo "say hi" | claude -p --model sonnet
+
+# 4. 用 wrapper 跑（自動 git pull + 跑完 push 更新後的 seen.json）
+bash scripts/run.sh daily      # 或 weekly
+```
+
+> wrapper 會在跑之前 `git pull --rebase`，跑完把新的 `data/seen.json` commit + push。
+> 兩台 Mac 輪流跑都 OK，不會重複推同一篇文章。
+
 ## 必填 .env
 
 | 變數 | 必要？ | 說明 |
